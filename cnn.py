@@ -1,4 +1,6 @@
 import tensorflow as tf
+from tensorflow.python.tools import freeze_graph
+from tensorflow.python.tools import optimize_for_inference_lib
 from keras import backend as K
 from keras.models import Sequential, load_model
 from keras.layers.convolutional import Conv2D
@@ -17,6 +19,8 @@ import json
 
 
 
+MODEL_NAME = "model"
+
 TRAIN_SIZE = 2172
 VALIDATION_SIZE = 140
 TEST_SIZE = 80
@@ -30,13 +34,6 @@ EPOCHS = 50
 TEST_STEPS = TEST_SIZE // BATCH_SIZE
 
 IMAGE_SIZE = 224
-
-#Testing produces the same output
-#For training, instead of making it random, shuffle the image_names array and select in order instead of random
-#Try reducing trainable parameters through uncommenting maxpooling
-#Try oversampling testing dataset
-#Instead of inputting same malignant images, change them a bit
-#Simplify the model by removing some layers
 
 
 
@@ -63,14 +60,14 @@ def data_generator(is_training = False, is_validation = False):
 			index += 1
 
 			X[i] = get_image_pixels(image_number, is_training = is_training, is_validation = is_validation)
-			Y[i] = get_image_description(image_number, is_training = is_training, is_validation = is_validation)
+			#Y[i] = get_image_description(image_number, is_training = is_training, is_validation = is_validation)
 			
 			if(index == len(image_names) - 1):
 				index = 0
 				shuffle(image_names)
 
 		#Once the whole batch is ready, yield the inputs and true outputs
-		yield X, Y
+		yield X#, Y
 
 
 #Create the architecture of the model as well as compile it
@@ -117,6 +114,8 @@ def create_model():
 	model.add(Dense(1, activation = "sigmoid"))
 
 	model.compile(optimizer = "adam", loss = "binary_crossentropy", metrics = ["accuracy"])
+	
+	print(model.summary())
 	
 	return model
 
@@ -175,7 +174,7 @@ def train(data_augmentation = True):
 def test(predict_or_evaluate = "predict"):
 
 	#Different results due to loading the model - model is compiled exactly, meaning Dropout still remains
-	model = load_model("model_with_data_augmentation_best.h5")	#Up to 88% correct on test
+	model = load_model("model_validation.h5")	#Up to 87% correct on test
 	
 	#Predict the inputted images' output
 	if(predict_or_evaluate == "predict"):
@@ -220,6 +219,32 @@ def test(predict_or_evaluate = "predict"):
 		print(evaluations)
 
 
+#Convert the model into a photobuf (.pb) file
+def export_model(saver, model, input_node_names, output_node_name):
+
+    tf.train.write_graph(K.get_session().graph_def, 'out', \
+        MODEL_NAME + '_graph.pbtxt')
+
+    saver.save(K.get_session(), 'out/' + MODEL_NAME + '.chkp')
+
+    freeze_graph.freeze_graph('out/' + MODEL_NAME + '_graph.pbtxt', None, \
+        False, 'out/' + MODEL_NAME + '.chkp', output_node_name, \
+        "save/restore_all", "save/Const:0", \
+        'out/frozen_' + MODEL_NAME + '.pb', True, "")
+
+    input_graph_def = tf.GraphDef()
+    with tf.gfile.Open('out/frozen_' + MODEL_NAME + '.pb', "rb") as f:
+        input_graph_def.ParseFromString(f.read())
+
+    output_graph_def = optimize_for_inference_lib.optimize_for_inference(
+            input_graph_def, input_node_names, [output_node_name],
+            tf.float32.as_datatype_enum)
+
+    with tf.gfile.FastGFile('out/opt_' + MODEL_NAME + '.pb', "wb") as f:
+        f.write(output_graph_def.SerializeToString())
+
+    print("graph saved!")
+
 
 
 #Code for running the program from the terminal
@@ -261,6 +286,12 @@ if(terminal_length >= 2):
         print("Evaluating images...")
         test("evaluate")
         
+    elif(sys.argv[1] == "--export" and terminal_length == 2):
+
+    	print("Exporting the model into .pb file")
+    	model = load_model("model_validation.h5")
+    	export_model(tf.train.Saver(), model, ["conv2d_1_input"], "dense_3/Sigmoid")
+
     #Invalid command
     else:
         
