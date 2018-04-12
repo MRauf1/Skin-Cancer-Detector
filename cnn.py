@@ -38,7 +38,7 @@ IMAGE_SIZE = 224
 
 
 #Generator that yields the input and true output data
-def data_generator(is_training = False, is_validation = False):
+def data_generator(is_training = False, is_validation = False, is_evaluate = False):
 
 	#Create the placeholders for input and output
 	X = np.random.rand(BATCH_SIZE, IMAGE_SIZE, IMAGE_SIZE, 3) 
@@ -47,7 +47,7 @@ def data_generator(is_training = False, is_validation = False):
 	image_names = get_image_names(is_training, is_validation)
 	index = 0
 
-	if(is_training or is_validation):
+	if(is_training or is_validation or is_evaluate):
 		shuffle(image_names)
 
 	#Generates the data indefinitely
@@ -60,14 +60,19 @@ def data_generator(is_training = False, is_validation = False):
 			index += 1
 
 			X[i] = get_image_pixels(image_number, is_training = is_training, is_validation = is_validation)
-			#Y[i] = get_image_description(image_number, is_training = is_training, is_validation = is_validation)
+
+			if(is_training or is_validation or is_evaluate):
+				Y[i] = get_image_description(image_number, is_training = is_training, is_validation = is_validation)
 			
 			if(index == len(image_names) - 1):
 				index = 0
 				shuffle(image_names)
 
 		#Once the whole batch is ready, yield the inputs and true outputs
-		yield X#, Y
+		if(is_training or is_validation or is_evaluate):
+			yield X, Y
+		else:
+			yield X
 
 
 #Create the architecture of the model as well as compile it
@@ -215,7 +220,7 @@ def test(predict_or_evaluate = "predict"):
 	else:
 
 		#Evaluate the model on test images
-		evaluations = model.evaluate_generator(data_generator(), steps = TEST_STEPS)
+		evaluations = model.evaluate_generator(data_generator(is_evaluate = True), steps = TEST_STEPS)
 		print(evaluations)
 
 
